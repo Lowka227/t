@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>ТГК виджет</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  html, body {
+    margin: 0; width: 100%; height: 100%;
+    background: transparent; overflow: hidden;
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #row {
+    display: flex; pointer-events: none;
+    align-items: center; gap: 34px;
+    opacity: 0;
+    visibility: hidden;   /* по умолчанию скрыт, показывается только на время show() */
+  }
+
+  /* ===== Общий стиль «жидкое стекло» ===== */
+  .glass {
+    background:
+      linear-gradient(145deg, rgba(255,255,255,.09) 0%, rgba(255,255,255,.02) 42%, rgba(255,255,255,.05) 100%),
+      rgba(14,22,34,.50);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+            backdrop-filter: blur(22px) saturate(180%);
+    border: 1px solid rgba(255,255,255,.14);
+    box-shadow:
+      inset 0 1.5px 1px rgba(255,255,255,.26),
+      inset 0 -1.5px 1px rgba(255,255,255,.06),
+      inset 0 0 26px rgba(255,255,255,.025),
+      0 14px 40px rgba(0,0,0,.38);
+  }
+
+  /* ===== Окно Telegram (слева) ===== */
+  #win {
+    position: relative;
+    width: 430px; height: 560px;
+    border-radius: 36px;
+    overflow: hidden;
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0,0,0,.35);
+  }
+  #win::before {            /* блик + узор обоев */
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      radial-gradient(120% 55% at 18% -8%, rgba(255,255,255,.14), transparent 55%),
+      radial-gradient(90% 40% at 100% 108%, rgba(120,190,255,.12), transparent 60%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Ccircle cx='10' cy='12' r='2' fill='%23ffffff' fill-opacity='.04'/%3E%3Ccircle cx='42' cy='38' r='4' fill='none' stroke='%23ffffff' stroke-opacity='.05' stroke-width='1.5'/%3E%3Cpath d='M50 8l6 6m0-6l-6 6' stroke='%23ffffff' stroke-opacity='.04' stroke-width='1.5'/%3E%3C/svg%3E");
+  }
+
+  .head {
+    position: absolute; z-index: 2; top: 14px; left: 14px; right: 14px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .circle {
+    height: 46px; min-width: 46px; border-radius: 23px; box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; flex-shrink: 0;
+  }
+  .back { padding: 0 16px 0 12px; gap: 6px; font-size: 20px; font-weight: 700; }
+  .back i { font-style: normal; font-size: 34px; line-height: 30px; font-weight: 300; margin-top: -4px; }
+  .pill { border-radius: 28px; padding: 7px 26px; text-align: center; }
+  .pill .name { font-size: 21px; font-weight: 700; line-height: 1.15; }
+  .pill .subs { font-size: 14px; color: #b9c9d8; margin-top: 1px; }
+  .ava {
+    width: 46px; height: 46px; border-radius: 50%;
+    background: #2aabee; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700; overflow: hidden; flex-shrink: 0;
+    border: 2px solid rgba(255,255,255,.35);
+    box-sizing: border-box;
+  }
+  .ava img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  #viewport {
+    position: absolute; inset: 0; overflow: hidden;
+    -webkit-mask-image: linear-gradient(transparent 0, #000 84px, #000 92%, transparent 100%);
+            mask-image: linear-gradient(transparent 0, #000 84px, #000 92%, transparent 100%);
+  }
+  #feed { padding: 80px 14px 40px; will-change: transform; }
+
+  .day {
+    width: max-content; margin: 6px auto 14px;
+    padding: 4px 16px; border-radius: 16px;
+    color: #eaf3fb; font-size: 15px; font-weight: 600;
+  }
+  .post {
+    border-radius: 22px;
+    padding: 13px 15px 11px;
+    margin-bottom: 14px;
+    font-size: 17px; line-height: 1.4; color: #fff;
+  }
+  .post .ttl { color: #9bd4ff; font-weight: 700; font-size: 16px; margin-bottom: 6px; }
+  .post .fwd { color: #9bd4ff; font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .post .media { display: grid; gap: 4px; border-radius: 14px; overflow: hidden; margin-bottom: 9px; }
+  .post .media.n1 { grid-template-columns: 1fr; }
+  .post .media:not(.n1) { grid-template-columns: 1fr 1fr; }
+  .post .media div { position: relative; background-size: cover; background-position: center; background-color: rgba(0,0,0,.25); }
+  .post .media.n1 div { aspect-ratio: 16 / 11; }
+  .post .media:not(.n1) div { aspect-ratio: 1 / 1; }
+  .post .media.n3 div:first-child { grid-column: 1 / 3; aspect-ratio: 16 / 9; }
+  .post .media div.v::after {
+    content: "▶"; position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 34px; text-shadow: 0 2px 10px rgba(0,0,0,.7);
+    background: radial-gradient(circle, rgba(0,0,0,.40) 0, transparent 38%);
+  }
+  .post .media .dur {
+    position: absolute; left: 8px; top: 8px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(0,0,0,.55); font-size: 13px;
+  }
+  .post .tx { word-break: break-word; }
+  .post .tx .lnk { color: #9bd4ff; }
+  .post .tx code, .post .tx pre { font-family: Consolas, monospace; background: rgba(0,0,0,.3); border-radius: 6px; padding: 1px 5px; }
+  .post .tx pre { display: block; padding: 8px 10px; white-space: pre-wrap; margin: 6px 0; }
+  .post .tx blockquote { margin: 6px 0; padding-left: 10px; border-left: 3px solid #9bd4ff; }
+  .post .lp { margin-top: 9px; padding: 4px 12px; border-left: 3px solid #9bd4ff; font-size: 15px; line-height: 1.35; }
+  .post .lp .s { color: #9bd4ff; font-weight: 700; }
+  .post .lp .t { font-weight: 700; }
+  .post .lp .d { color: #dbe6f0; }
+  .post .lp .im { margin-top: 6px; height: 150px; border-radius: 10px; background-size: cover; background-position: center; }
+  .post .poll { margin-top: 9px; font-size: 16px; }
+  .post .poll .q { font-weight: 700; margin-bottom: 6px; }
+  .post .poll .o { display: flex; justify-content: space-between; gap: 10px; padding: 5px 10px; margin-bottom: 4px; border-radius: 10px; background: rgba(255,255,255,.06); }
+  .post .rx { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  .post .rx span {
+    background: rgba(255,255,255,.09); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 16px; padding: 3px 11px; font-size: 15px; font-weight: 600;
+  }
+  .post .meta { margin-top: 5px; font-size: 13px; color: #cfe0ef; text-align: right; }
+  .post .meta .eye { filter: grayscale(1) opacity(.8); margin-right: 3px; }
+  .post .cm {
+    margin: 9px -15px -11px; padding: 11px 15px;
+    border-top: 1px solid rgba(255,255,255,.10);
+    color: #9bd4ff; font-size: 17px;
+    display: flex; align-items: center; gap: 9px;
+  }
+  .post .cm svg { width: 20px; height: 20px; flex-shrink: 0; }
+  .post .cm b { margin-left: auto; font-weight: 400; color: #cfe0ef; font-size: 22px; line-height: 1; }
+
+  .embed {
+    margin-bottom: 14px; border-radius: 22px; overflow: hidden;
+    border: 1px solid rgba(255,255,255,.14);
+    box-shadow: inset 0 1px 1px rgba(255,255,255,.26), 0 8px 24px rgba(0,0,0,.3);
+  }
+  .embed iframe { display: block; width: 100%; border: 0; color-scheme: dark; }
+
+  /* ===== QR (справа) ===== */
+  #qrwrap { width: 380px; flex-shrink: 0; text-align: center; }
+  #qrcard {
+    position: relative;
+    background: linear-gradient(145deg, rgba(255,255,255,.99), rgba(236,243,250,.95));
+    border: 1px solid rgba(255,255,255,.8);
+    border-radius: 38px;
+    padding: 26px;
+    line-height: 0;
+    box-shadow: inset 0 2px 2px rgba(255,255,255,.9), inset 0 -2px 4px rgba(120,150,190,.25), 0 14px 40px rgba(0,0,0,.4);
+  }
+  #qrcard canvas { width: 328px; height: 328px; }
+  #logo {
+    position: absolute; left: 50%; top: 50%;
+    width: 76px; height: 76px; margin: -38px 0 0 -38px;
+    border-radius: 50%; border: 5px solid #fff;
+    box-sizing: border-box; overflow: hidden;
+    font-size: 30px; line-height: 66px; background: #2aabee; color: #fff; font-weight: 700;
+  }
+  #logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #handle {
+    display: inline-block; margin-top: 16px;
+    padding: 12px 34px; border-radius: 40px;
+    color: #fff; font-size: 28px; font-weight: 700;
+    text-shadow: 0 1px 4px rgba(0,0,0,.5);
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="row">
+    <div id="win" class="glass">
+      <div id="viewport"><div id="feed"></div></div>
+      <div class="head">
+        <div class="circle back glass"><i>‹</i><span id="backCount"></span></div>
+        <div class="pill glass">
+          <div class="name" id="chName"></div>
+          <div class="subs" id="chSubs"></div>
+        </div>
+        <div class="ava" data-ava></div>
+      </div>
+    </div>
+
+    <div id="qrwrap">
+      <div id="qrcard"><div id="logo" data-ava></div></div>
+      <div id="handle" class="glass"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===== НАСТРОЙКИ ===== */
+const TG_URL   = 'https://t.me/kirillsmotrit';
+const TG_PAGE  = 'https://t.me/s/kirillsmotrit';   // страница с постами канала
+const HANDLE   = '@kirillsmotrit';
+const CH_NAME  = 'КИРИЛЛ СМОТРИТ';
+const CH_SUBS  = '';                                // подписчики берутся из Telegram сами (сюда ничего вписывать не нужно)
+const BACK_COUNT = '67';                              // число рядом со стрелкой «назад» (можно пустым)
+const AVATAR_URL = 'https://cdn4.telesco.pe/file/lP79gmP8VMAD0uozDu4l72p-iutKhJYIQ7z-7pgF5fKhYVoNrr3hbZdx0Mfdza_dyr4-SM40UN1pzA_bgt1ZqT_HreNwY96ZZPEWMUobHXpWCGS6-ov5G35lvaafO-964AqIIiEAvju9L3uH4BnG5XMxrH2C0Nm-pVqMaK_yHFbfcAKWqR4hg1l2bIM6l-L80AZo89bCaFBs7xy3W1Sz_9aGSmg1MnH_r4YQDnR4wjUekQlNyMlUVmPE2DXROj11hOclXffU0vP3x4uxiVEflvHcP75JWgLF9kAAl6j1nfu_is5uu67UT0yCV-UNCs7lNYvE8ydhOjjp3FqDR5NRbg.jpg';
+
+// true — аватарка, название и число подписчиков берутся из Telegram сами (значения выше — запасные)
+const AUTO_INFO  = true;
+
+const SCALE      = 1.25;   // размер всего виджета (1 = как раньше, 1.4 = ещё крупнее)
+const DAYS_BACK  = 365;    // за сколько дней показывать посты (365 = последний год)
+const MAX_POSTS  = 120;    // максимум постов в ленте (берутся самые свежие)
+const MAX_PAGES  = 15;     // максимум загружаемых страниц Telegram (по ~20 постов)
+const SHOW_POST_TITLE = true;    // синее название канала над постом
+const SHOW_COMMENTS   = true;    // строка «Прокомментировать» под постом
+
+const SCROLL_SPEED   = 140;       // скорость прокрутки внутри окна, px/сек (меньше = медленнее)
+const MAX_SCROLL_MS  = 120000;   // самая долгая прокрутка, мс (если постов очень много, ускоряется)
+const HOLD_MS        = 2000;     // сколько держать окно после конца прокрутки (потом исчезает)
+const FADE_MS        = 1400;      // плавность появления/исчезновения
+
+// Необязательно: свой прокси-адрес, если публичные не работают, например 'https://xxx.workers.dev/?url='
+const CUSTOM_PROXY = '';
+
+// РЕЖИМ «ВСТРОЕННЫЕ ПОСТЫ TELEGRAM» (без прокси). LAST_POST_ID — номер последнего поста
+// (t.me/kirillsmotrit/123 → 123). FIRST_POST_ID — номер первого поста за год (0 = последние POSTS_COUNT).
+// 0 в LAST_POST_ID = режим выключен.
+const LAST_POST_ID  = 0;
+const FIRST_POST_ID = 0;
+const POSTS_COUNT   = 8;
+const EMBED_MAX     = 60;
+const TG_USER       = 'kirillsmotrit';
+
+const COMMAND  = '!тгк';
+const ALLOWED_USER = 'lowka2278';   // только этот ник может вызвать виджет
+const CHANNELS = ['lowka2278'];     // чаты Twitch, которые слушаем (маленькими буквами, без #)
+const DEBUG = false;                // true — покажет статус подключения и сообщения чата
+/* ===================== */
+
+const $ = id => document.getElementById(id);
+const row = $('row'), feed = $('feed'), viewport = $('viewport');
+row.style.zoom = SCALE;
+$('chName').textContent = CH_NAME;
+$('chSubs').textContent = CH_SUBS;
+$('chSubs').style.display = CH_SUBS ? 'block' : 'none';
+$('backCount').textContent = BACK_COUNT;
+$('handle').textContent = HANDLE;
+
+/* Диагностика */
+const dbg = document.createElement('div');
+dbg.style.cssText = 'position:fixed;left:6px;top:6px;font:12px monospace;color:#0f0;background:rgba(0,0,0,.7);padding:6px;max-width:90%;white-space:pre-wrap;z-index:9;display:' + ((DEBUG || /debug/.test(location.search)) ? 'block' : 'none');
+document.body.appendChild(dbg);
+const log = t => { console.log(t); dbg.textContent = (dbg.textContent + '\n' + t).split('\n').slice(-8).join('\n'); };
+log('каналы: ' + CHANNELS.join(', ') + ' | разрешён: ' + ALLOWED_USER);
+
+/* ===== Аватарка, название, подписчики (автоматически из Telegram) ===== */
+let NAME = CH_NAME;
+const USERPIC = 'https://t.me/i/userpic/320/' + TG_USER + '.jpg';   // официальная аватарка канала, всегда свежая
+const avaEls = [...document.querySelectorAll('[data-ava]')];
+avaEls.forEach(el => { el.textContent = (CH_NAME[0] || 'T').toUpperCase(); });
+
+let curAva = '';
+function setAvatar(urls) {
+  urls = urls.filter(Boolean);
+  (function next(i) {
+    if (i >= urls.length) return;
+    const img = new Image();
+    img.referrerPolicy = 'no-referrer';   // Telegram CDN иногда не отдаёт картинку с чужим реферером
+    img.onload = () => {
+      curAva = urls[i];
+      avaEls.forEach(el => { el.textContent = ''; el.appendChild(img.cloneNode()); });
+    };
+    img.onerror = () => next(i + 1);
+    img.src = urls[i];
+  })(0);
+}
+
+function fmtSubs(raw) {
+  const s = String(raw).replace(/\u00a0/g, ' ').trim();
+  const num = parseInt(s.replace(/\s/g, ''), 10);
+  if (/[KkMm]$/.test(s) || isNaN(num)) return s + ' подписчиков';
+  const a = num % 10, b = num % 100;
+  const w = (a === 1 && b !== 11) ? 'подписчик' : (a >= 2 && a <= 4 && (b < 12 || b > 14)) ? 'подписчика' : 'подписчиков';
+  return s + ' ' + w;
+}
+
+function parseInfo(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const meta = p => { const m = doc.querySelector('meta[property="' + p + '"]'); return m ? (m.getAttribute('content') || '') : ''; };
+  const info = {};
+  const t = doc.querySelector('.tgme_page_title') || doc.querySelector('.tgme_channel_info_header_title');
+  info.name = t ? t.textContent.trim() : meta('og:title');
+  const img = doc.querySelector('img.tgme_page_photo_image') || doc.querySelector('.tgme_channel_info_header img');
+  info.avatar = (img && img.getAttribute('src')) || meta('og:image');
+  let subs = '';
+  const ex = doc.querySelector('.tgme_page_extra');
+  if (ex) {
+    const m = ex.textContent.match(/(\d[\d\s\u00a0.,]*[KkMm]?)\s*(?:subscribers|members|подписчик|участник)/i);
+    if (m) subs = m[1].trim();
+  }
+  if (!subs) {
+    doc.querySelectorAll('.tgme_channel_info_counter').forEach(c => {
+      if (/subscri|подпис/i.test(c.textContent)) {
+        const v = c.querySelector('.counter_value');
+        if (v) subs = v.textContent.trim();
+      }
+    });
+  }
+  info.subs = subs;
+  return info;
+}
+
+function applyInfo(info) {
+  if (!info) return;
+  if (info.name) {
+    NAME = info.name;
+    $('chName').textContent = NAME;
+    document.querySelectorAll('.ttl').forEach(e => { e.textContent = NAME; });
+  }
+  if (info.subs) {
+    $('chSubs').textContent = fmtSubs(info.subs);
+    $('chSubs').style.display = 'block';
+  }
+}
+
+const INFO_KEY = 'tgk_info_v1';
+let infoLoadedAt = 0;
+function saveInfo(info) {
+  applyInfo(info);
+  try { localStorage.setItem(INFO_KEY, JSON.stringify(info)); } catch (e) {}
+  infoLoadedAt = Date.now();
+}
+// Берём данные с двух страниц Telegram: t.me/канал и t.me/s/канал (что найдётся — то и используем)
+async function loadInfo() {
+  if (!AUTO_INFO) return;
+  const info = { name: '', avatar: '', subs: '' };
+  const pages = [
+    [TG_URL,  /tgme_page_title|tgme_page_extra|og:title/],
+    [TG_PAGE, /tgme_channel_info|og:title/]
+  ];
+  for (const [url, test] of pages) {
+    try {
+      const i = parseInfo(await fetchAny(url, test));
+      info.name   = info.name   || i.name;
+      info.avatar = info.avatar || i.avatar;
+      info.subs   = info.subs   || i.subs;
+      if (info.name && info.subs) break;
+    } catch (e) {}
+  }
+  if (!info.name && !info.subs) { log('данные канала не загрузились, использую сохранённые/запасные'); return; }
+  saveInfo(info);
+  if (!curAva && info.avatar) setAvatar([info.avatar, AVATAR_URL]);
+  log('канал: ' + (info.name || '?') + ', подписчиков: ' + (info.subs || '?'));
+}
+
+if (AUTO_INFO) {
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(INFO_KEY) || 'null'); } catch (e) {}
+  applyInfo(cached);
+  setAvatar([USERPIC, cached && cached.avatar, AVATAR_URL]);
+} else {
+  setAvatar([AVATAR_URL]);
+}
+
+/* ===== QR ===== */
+function rr(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function buildQR() {
+  const q = new QRCode(document.createElement('div'), {
+    text: TG_URL, width: 256, height: 256,
+    correctLevel: QRCode.CorrectLevel.H
+  });
+  const o = q._oQRCode, n = o.getModuleCount();
+  const S = 720, m = S / n;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, S, S);
+  g.addColorStop(0, '#1b1f26');
+  g.addColorStop(1, '#3d4350');
+  ctx.fillStyle = g;
+  const inEye = (r, c) => (r < 7 && c < 7) || (r < 7 && c >= n - 7) || (r >= n - 7 && c < 7);
+  const logoR = n * 0.21;
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (!o.isDark(r, c) || inEye(r, c)) continue;
+      if (Math.hypot(r + .5 - n / 2, c + .5 - n / 2) < logoR) continue;
+      rr(ctx, c * m + m * .04, r * m + m * .04, m * .92, m * .92, m * .32);
+      ctx.fill();
+    }
+  }
+  [[0, 0], [0, n - 7], [n - 7, 0]].forEach(([r0, c0]) => {
+    const x = c0 * m, y = r0 * m;
+    ctx.globalCompositeOperation = 'source-over';
+    rr(ctx, x, y, 7 * m, 7 * m, 2.2 * m); ctx.fill();
+    ctx.globalCompositeOperation = 'destination-out';
+    rr(ctx, x + m, y + m, 5 * m, 5 * m, 1.5 * m); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    rr(ctx, x + 2 * m, y + 2 * m, 3 * m, 3 * m, 1.1 * m); ctx.fill();
+  });
+  $('qrcard').insertBefore(cv, $('logo'));
+}
+try { buildQR(); } catch (e) { console.error('QR error', e); }
+
+/* ===== Загрузка постов (страница t.me/s + пагинация за год) ===== */
+const enc = encodeURIComponent;
+async function getText(url, opts = {}, ms = 12000) {
+  const host = new URL(url).hostname;
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, Object.assign({}, opts, { signal: ctl.signal }));
+    if (!r.ok) throw new Error(host + ' HTTP ' + r.status);
+    return await r.text();
+  } catch (e) {
+    throw new Error(e.name === 'AbortError' ? host + ' таймаут' : (e.message.startsWith(host) ? e.message : host + ': ' + e.message));
+  } finally { clearTimeout(t); }
+}
+// Все источники пробуются одновременно, берётся первый, который вернул страницу канала
+const SOURCES = [
+  u => getText(u),
+  u => getText('https://api.allorigins.win/raw?url=' + enc(u)),
+  u => getText('https://api.allorigins.win/get?url=' + enc(u)).then(t => JSON.parse(t).contents || ''),
+  u => getText('https://corsproxy.io/?' + enc(u)),
+  u => getText('https://api.codetabs.com/v1/proxy?quest=' + enc(u)),
+  u => getText('https://thingproxy.freeboard.io/fetch/' + u),
+  u => getText('https://r.jina.ai/' + u, { headers: { 'X-Return-Format': 'html' } })
+];
+if (CUSTOM_PROXY) SOURCES.unshift(u => getText(CUSTOM_PROXY + enc(u)));
+function fetchAny(url, test = /tgme_widget_message/) {
+  return Promise.any(SOURCES.map(src => src(url).then(h => {
+    if (!test.test(h)) throw new Error('ответ без данных канала');
+    return h;
+  })));
+}
+
+function bgUrl(el) {
+  if (!el) return '';
+  const m = (el.getAttribute('style') || '').match(/url\(['"]?([^'")]+)['"]?\)/);
+  return m ? m[1] : '';
+}
+// Безопасное копирование форматированного текста (только простые теги, без атрибутов)
+const KEEP = ['b', 'strong', 'i', 'em', 'u', 's', 'code', 'pre', 'a', 'blockquote'];
+function appendFormatted(src, dst) {
+  src.childNodes.forEach(n => {
+    if (n.nodeType === 3) { dst.appendChild(document.createTextNode(n.textContent)); return; }
+    if (n.nodeType !== 1) return;
+    const t = n.tagName.toLowerCase();
+    if (t === 'br') { dst.appendChild(document.createElement('br')); return; }
+    if (n.classList && n.classList.contains('emoji')) { dst.appendChild(document.createTextNode(n.textContent)); return; }
+    if (KEEP.includes(t)) {
+      const e = document.createElement(t === 'a' ? 'span' : t);
+      if (t === 'a') e.className = 'lnk';
+      appendFormatted(n, e);
+      dst.appendChild(e);
+    } else appendFormatted(n, dst);
+  });
+}
+
+function parsePage(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const out = [];
+  let minId = 0;
+  const txt = (root, sel) => { const e = root.querySelector(sel); return e ? e.textContent.trim() : ''; };
+  doc.querySelectorAll('.tgme_widget_message').forEach(msg => {
+    const idm = (msg.getAttribute('data-post') || '').match(/\/(\d+)$/);
+    const id = idm ? +idm[1] : 0;
+    if (id && (!minId || id < minId)) minId = id;
+
+    const textEl = msg.querySelector('.js-message_text') || msg.querySelector('.tgme_widget_message_text');
+    let textHtml = '';
+    if (textEl) {
+      const tmp = document.createElement('div');
+      appendFormatted(textEl, tmp);
+      textHtml = tmp.innerHTML.trim();
+    }
+
+    const media = [];
+    msg.querySelectorAll('.tgme_widget_message_photo_wrap, .tgme_widget_message_video_thumb, .tgme_widget_message_roundvideo_thumb')
+      .forEach(el => {
+        const u = bgUrl(el);
+        if (!u) return;
+        const isVideo = el.matches('.tgme_widget_message_video_thumb, .tgme_widget_message_roundvideo_thumb');
+        const durEl = isVideo && el.parentElement ? el.parentElement.querySelector('.message_video_duration') : null;
+        media.push({ u, v: isVideo, d: durEl ? durEl.textContent.trim() : '' });
+      });
+
+    let link = null;
+    const lp = msg.querySelector('.tgme_widget_message_link_preview');
+    if (lp) {
+      link = {
+        site: txt(lp, '.link_preview_site_name'),
+        title: txt(lp, '.link_preview_title'),
+        desc: txt(lp, '.link_preview_description'),
+        img: bgUrl(lp.querySelector('.link_preview_image, .link_preview_right_image'))
+      };
+      if (!link.title && !link.desc) link = null;
+    }
+
+    let poll = null;
+    const pq = msg.querySelector('.tgme_widget_message_poll_question');
+    if (pq) {
+      poll = { q: pq.textContent.trim(), o: [] };
+      msg.querySelectorAll('.tgme_widget_message_poll_option').forEach(op => {
+        poll.o.push({ t: txt(op, '.tgme_widget_message_poll_option_text'), p: txt(op, '.tgme_widget_message_poll_option_percent') });
+      });
+    }
+
+    if (!textHtml && !media.length && !poll && !link) return;
+
+    const fwd = txt(msg, '.tgme_widget_message_forwarded_from_name');
+    const reactions = [];
+    msg.querySelectorAll('.tgme_reaction').forEach(r => {
+      const b = r.querySelector('b');
+      const emoji = b ? b.textContent.trim() : (r.classList.contains('tgme_reaction_paid') ? '⭐' : '');
+      const count = r.textContent.replace(emoji, '').trim();
+      if (emoji) reactions.push({ emoji, count });
+    });
+
+    const views = txt(msg, '.tgme_widget_message_views');
+    const timeEl = msg.querySelector('.tgme_widget_message_date time') || msg.querySelector('time');
+    let ts = 0, dayKey = '', dayLabel = '', time = '';
+    if (timeEl && timeEl.getAttribute('datetime')) {
+      const d = new Date(timeEl.getAttribute('datetime'));
+      ts = d.getTime();
+      dayKey = d.toDateString();
+      const opts = { day: 'numeric', month: 'long' };
+      if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+      dayLabel = d.toLocaleDateString('ru-RU', opts);
+      time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    }
+    out.push({ id, ts, textHtml, media: media.slice(0, 10), link, poll, fwd, reactions, views, dayKey, dayLabel, time });
+  });
+  return { posts: out, minId };
+}
+
+const CM_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-12.2 7.5L3 20.5l1.6-5.3A8.5 8.5 0 1 1 21 11.5z"/></svg>';
+const mk = (cls, parent, text) => {
+  const e = document.createElement('div');
+  e.className = cls;
+  if (text) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+};
+
+function renderPosts(posts) {
+  feed.innerHTML = '';
+  let prevDay = null;
+  posts.forEach(p => {
+    if (p.dayKey && p.dayKey !== prevDay) {
+      mk('day glass', feed, p.dayLabel);
+      prevDay = p.dayKey;
+    }
+    const el = mk('post glass', feed);
+    if (SHOW_POST_TITLE) mk('ttl', el, NAME);
+    if (p.fwd) mk('fwd', el, 'Переслано от ' + p.fwd);
+    if (p.media && p.media.length) {
+      const md = mk('media n' + (p.media.length >= 4 ? 'm' : p.media.length), el);
+      p.media.forEach(m => {
+        const ph = document.createElement('div');
+        ph.style.backgroundImage = `url("${m.u}")`;
+        if (m.v) ph.className = 'v';
+        if (m.v && m.d) mk('dur', ph, m.d);
+        md.appendChild(ph);
+      });
+    }
+    if (p.textHtml) mk('tx', el).innerHTML = p.textHtml;
+    if (p.link) {
+      const lp = mk('lp', el);
+      if (p.link.site) mk('s', lp, p.link.site);
+      if (p.link.title) mk('t', lp, p.link.title);
+      if (p.link.desc) mk('d', lp, p.link.desc);
+      if (p.link.img) mk('im', lp).style.backgroundImage = `url("${p.link.img}")`;
+    }
+    if (p.poll) {
+      const pl = mk('poll', el);
+      mk('q', pl, p.poll.q);
+      p.poll.o.forEach(o => { const r = mk('o', pl); mk('', r, o.t); mk('', r, o.p); });
+    }
+    if (p.reactions && p.reactions.length) {
+      const rx = mk('rx', el);
+      p.reactions.forEach(r => {
+        const s = document.createElement('span');
+        s.textContent = r.emoji + (r.count ? ' ' + r.count : '');
+        rx.appendChild(s);
+      });
+    }
+    if (p.views || p.time) {
+      mk('meta', el).innerHTML = (p.views ? '<span class="eye">👁</span>' + p.views + '&nbsp;&nbsp;' : '') + (p.time || '');
+    }
+    if (SHOW_COMMENTS) mk('cm', el).innerHTML = CM_ICON + '<span>Прокомментировать</span><b>›</b>';
+  });
+}
+
+/* ===== Режим встроенных постов Telegram (iframe) ===== */
+function renderEmbeds() {
+  feed.innerHTML = '';
+  let from = FIRST_POST_ID > 0 ? FIRST_POST_ID : LAST_POST_ID - POSTS_COUNT + 1;
+  from = Math.max(1, from, LAST_POST_ID - EMBED_MAX + 1);
+  for (let id = from; id <= LAST_POST_ID; id++) {
+    const box = mk('embed', feed);
+    const f = document.createElement('iframe');
+    f.src = 'https://t.me/' + TG_USER + '/' + id + '?embed=1&mode=tme&dark=1';
+    f.setAttribute('scrolling', 'no');
+    f.setAttribute('frameborder', '0');
+    f.style.height = '180px';
+    box.appendChild(f);
+  }
+  log('режим встроенных постов: ' + from + '–' + LAST_POST_ID);
+}
+addEventListener('message', e => {
+  if (typeof e.data !== 'string') return;
+  let d; try { d = JSON.parse(e.data); } catch (_) { return; }
+  if (!d || d.event !== 'resize' || !d.height) return;
+  document.querySelectorAll('.embed iframe').forEach(f => {
+    if (f.contentWindow === e.source) f.style.height = d.height + 'px';
+  });
+});
+
+/* ===== Состояние, кэш, загрузка ===== */
+let busy = false, pendingPosts = null;
+let lastLoad = 0, loading = null, hasPosts = false;
+const CACHE_KEY = 'tgk_posts_v2';
+function saveCache(posts) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(posts)); } catch (e) {} }
+function loadCache() {
+  try { const c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); return Array.isArray(c) && c.length ? c : null; }
+  catch (e) { return null; }
+}
+function showEmpty(msg) {
+  feed.innerHTML = '';
+  mk('day glass', feed, msg);
+}
+function applyPosts(posts) { if (busy) pendingPosts = posts; else renderPosts(posts); }
+
+async function fetchYear() {
+  const cutoff = Date.now() - DAYS_BACK * 86400000;
+  const byId = new Map();
+  let before = 0;
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    let res;
+    try {
+      const html = await fetchAny(before ? TG_PAGE + '?before=' + before : TG_PAGE);
+      res = parsePage(html);
+      // подписчики есть и на странице с постами — берём их оттуда без лишнего запроса
+      if (page === 1 && AUTO_INFO) {
+        const inf = parseInfo(html);
+        if (inf.subs || inf.name) saveInfo(Object.assign({ avatar: '' }, inf));
+      }
+    } catch (e) {
+      if (page === 1) throw e;
+      log('страница ' + page + ' не загрузилась, продолжаю с тем, что есть');
+      break;
+    }
+    res.posts.forEach(p => byId.set(p.id || ('x' + byId.size), p));
+    const all = [...byId.values()].filter(p => !p.ts || p.ts >= cutoff).sort((a, b) => a.id - b.id).slice(-MAX_POSTS);
+    if (page === 1 && all.length) { applyPosts(all); hasPosts = true; }
+    log('страница ' + page + ': всего постов ' + all.length);
+    const oldest = res.posts[0];
+    if (!res.minId || res.minId <= 1 || res.minId === before) break;
+    if (oldest && oldest.ts && oldest.ts < cutoff) break;
+    if (!res.posts.length) break;
+    before = res.minId;
+  }
+  return [...byId.values()].filter(p => !p.ts || p.ts >= cutoff).sort((a, b) => a.id - b.id).slice(-MAX_POSTS);
+}
+
+function loadPosts() {
+  if (loading) return loading;
+  loading = (async () => {
+    try {
+      const posts = await fetchYear();
+      if (!posts.length) throw new Error('в ответе нет постов');
+      saveCache(posts);
+      applyPosts(posts);
+      lastLoad = Date.now(); hasPosts = true;
+      log('готово, постов за период: ' + posts.length);
+      return true;
+    } catch (e) {
+      log('не удалось загрузить посты: ' + (e.errors ? e.errors.map(x => x.message).join(' | ') : e.message));
+      if (!hasPosts) {
+        const c = loadCache();
+        if (c) { renderPosts(c); hasPosts = true; log('показываю последние сохранённые посты'); }
+        else showEmpty('Не удалось загрузить посты');
+      }
+      return false;
+    }
+  })().finally(() => { loading = null; });
+  return loading;
+}
+
+loadInfo();   // аватарка, название, подписчики
+
+if (LAST_POST_ID > 0) {
+  renderEmbeds(); hasPosts = true;
+} else {
+  { const c = loadCache(); if (c) { renderPosts(c); hasPosts = true; } }   // сохранённые показываем сразу
+  loadPosts();                                                            // и обновляем с Telegram
+}
+
+/* ===== Показ: плавное появление, прокрутка внутри, ожидание 2 сек, исчезновение ===== */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function hardHide() {
+  row.getAnimations().forEach(a => a.cancel());
+  feed.getAnimations().forEach(a => a.cancel());
+  row.style.opacity = '0';
+  row.style.visibility = 'hidden';
+}
+
+async function show() {
+  if (busy) return;
+  busy = true;
+  try {
+    if (AUTO_INFO && Date.now() - infoLoadedAt > 10 * 60 * 1000) loadInfo();   // подписчики обновятся
+    if (!hasPosts) await Promise.race([loadPosts(), sleep(6000)]);
+    else if (!LAST_POST_ID && Date.now() - lastLoad > 3 * 60 * 1000) loadPosts();   // обновим на следующий раз
+
+    row.getAnimations().forEach(a => a.cancel());
+    feed.getAnimations().forEach(a => a.cancel());
+    row.style.visibility = 'visible';
+
+    row.animate(
+      [{ opacity: 0, transform: 'translateY(26px) scale(.96)' },
+       { opacity: 1, transform: 'translateY(0) scale(1)' }],
+      { duration: FADE_MS, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' }
+    );
+
+    const dist = feed.scrollHeight - viewport.clientHeight + 10;
+    let scrollMs;
+    if (dist > 0) {
+      scrollMs = Math.min(MAX_SCROLL_MS, Math.max(6000, dist / SCROLL_SPEED * 1000));
+      feed.animate(
+        [{ transform: 'translateY(0)' }, { transform: `translateY(-${dist}px)` }],
+        { duration: scrollMs, delay: FADE_MS, easing: 'linear', fill: 'forwards' }
+      );
+    } else {
+      scrollMs = 6000;
+    }
+
+    await sleep(FADE_MS + scrollMs + HOLD_MS);   // домотал до конца → ещё 2 сек → исчезает
+
+    row.animate(
+      [{ opacity: 1, transform: 'translateY(0) scale(1)' },
+       { opacity: 0, transform: 'translateY(-14px) scale(.98)' }],
+      { duration: FADE_MS, easing: 'ease-in', fill: 'forwards' }
+    );
+    await sleep(FADE_MS + 50);
+  } catch (e) {
+    log('ошибка показа: ' + e.message);
+  } finally {
+    hardHide();   // что бы ни случилось — виджет полностью скрыт и не остаётся на экране
+    busy = false;
+    if (pendingPosts) { renderPosts(pendingPosts); pendingPosts = null; }
+  }
+}
+
+/* Тест в браузере: нажми клавишу T */
+addEventListener('keydown', e => { if (e.key.toLowerCase() === 't') show(); });
+
+/* ===== Чат Twitch (анонимное подключение) ===== */
+function connect() {
+  const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+  ws.onopen = () => {
+    ws.send('PASS SCHMOOPIIE');
+    ws.send('NICK justinfan' + Math.floor(Math.random() * 90000 + 10000));
+    CHANNELS.forEach(c => ws.send('JOIN #' + c.toLowerCase()));
+    log('подключаюсь к чату...');
+  };
+  ws.onmessage = ev => {
+    ev.data.split('\r\n').filter(Boolean).forEach(line => {
+      if (line.startsWith('PING')) { ws.send('PONG :tmi.twitch.tv'); return; }
+      if (/ JOIN #/.test(line)) log('подключено: ' + line.split(' JOIN ')[1]);
+      const m = line.match(/^(?:@\S+ )?:(\w+)!\S+ PRIVMSG #(\S+) :(.*)$/);
+      if (!m) return;
+      log('#' + m[2] + ' ' + m[1] + ': ' + m[3]);
+      const user = m[1].toLowerCase();
+      const chan = m[2].toLowerCase();
+      const text = m[3].replace(/[\u034f\u200b\u2800]/g, '').trim().toLowerCase();
+      if (CHANNELS.map(c => c.toLowerCase()).includes(chan) &&
+          user === ALLOWED_USER.toLowerCase() &&
+          text.split(' ')[0] === COMMAND) show();
+    });
+  };
+  ws.onclose = () => { log('соединение закрыто, переподключаюсь'); setTimeout(connect, 3000); };
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>
