@@ -229,7 +229,13 @@ const FADE_MS        = 1400;      // плавность появления/ис�
 const BOT_TOKEN = '8028068754:AAFYqhlx4uD2qsJRCFfSgBsiVcGjYbhCuJE';
 
 // Необязательно: свой прокси-адрес, если публичные не работают, например 'https://xxx.workers.dev/?url='
-const CUSTOM_PROXY = 'tg://proxy?server=127.0.0.1&port=1443&secret=dd0245c93dbaf4d059285481771cd9fd87';
+const CUSTOM_PROXY = 'https://tgproxy.rinatbiktagirov56.workers.dev/?url=https://t.me/s/kirillsmotrit';
+
+// ЗАПАСНЫЕ ПОСТЫ: если Telegram/прокси недоступны и сохранённого кэша ещё нет, показываются они.
+// Как заполнить: открой виджет у себя (где посты грузятся), подожди загрузки и нажми клавишу E —
+// код скопируется в буфер (или скачается файлом snapshot.txt). Вставь его вместо строки ниже.
+const SNAPSHOT = [];
+const SNAPSHOT_COUNT = 40;   // сколько последних постов сохранять при экспорте
 
 // РЕЖИМ «ВСТРОЕННЫЕ ПОСТЫ TELEGRAM» (без прокси). LAST_POST_ID — номер последнего поста
 // (t.me/kirillsmotrit/123 → 123). FIRST_POST_ID — номер первого поста за год (0 = последние POSTS_COUNT).
@@ -242,7 +248,7 @@ const TG_USER       = 'kirillsmotrit';
 
 const COMMAND  = '!тгк';
 const ALLOWED_USER = 'lowka2278';   // только этот ник может вызвать виджет
-const CHANNELS = ['lowka2278', 'kirillsmotrit'];     // чаты Twitch, которые слушаем (маленькими буквами, без #)
+const CHANNELS = ['lowka2278'];     // чаты Twitch, которые слушаем (маленькими буквами, без #)
 const DEBUG = false;                // true — покажет статус подключения и сообщения чата
 /* ===================== */
 
@@ -744,7 +750,8 @@ addEventListener('message', e => {
 let busy = false, pendingPosts = null;
 let lastLoad = 0, loading = null, hasPosts = false;
 const CACHE_KEY = 'tgk_posts_v4';
-function saveCache(posts) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(posts)); } catch (e) {} }
+let lastPosts = null;
+function saveCache(posts) { lastPosts = posts; try { localStorage.setItem(CACHE_KEY, JSON.stringify(posts)); } catch (e) {} }
 function loadCache() {
   try { const c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); return Array.isArray(c) && c.length ? c : null; }
   catch (e) { return null; }
@@ -801,7 +808,7 @@ function loadPosts() {
     } catch (e) {
       log('не удалось загрузить посты: ' + (e.errors ? e.errors.map(x => x.message).join(' | ') : e.message));
       if (!hasPosts) {
-        const c = loadCache();
+        const c = loadCache() || (SNAPSHOT.length ? SNAPSHOT : null);
         if (c) { renderPosts(c); hasPosts = true; log('показываю последние сохранённые посты'); }
         else showEmpty('Не удалось загрузить посты');
       }
@@ -816,7 +823,7 @@ loadInfo();   // аватарка, название, подписчики
 if (LAST_POST_ID > 0) {
   renderEmbeds(); hasPosts = true;
 } else {
-  { const c = loadCache(); if (c) { renderPosts(c); hasPosts = true; } }   // сохранённые показываем сразу
+  { const c = loadCache() || (SNAPSHOT.length ? SNAPSHOT : null); if (c) { renderPosts(c); hasPosts = true; } }   // сохранённые показываем сразу
   loadPosts();                                                            // и обновляем с Telegram
 }
 
@@ -879,6 +886,21 @@ async function show() {
 
 /* Тест в браузере: нажми клавишу T */
 addEventListener('keydown', e => { if (e.key.toLowerCase() === 't') show(); });
+
+/* Экспорт запасных постов: нажми клавишу E после успешной загрузки */
+addEventListener('keydown', async e => {
+  if (e.key.toLowerCase() !== 'e') return;
+  const src = lastPosts || loadCache();
+  if (!src || !src.length) { log('экспорт: постов ещё нет, дождись загрузки'); return; }
+  const code = 'const SNAPSHOT = ' + JSON.stringify(src.slice(-SNAPSHOT_COUNT)) + ';';
+  try { await navigator.clipboard.writeText(code); log('экспорт: скопировано в буфер (' + Math.min(src.length, SNAPSHOT_COUNT) + ' постов)'); }
+  catch (_) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([code], { type: 'text/plain' }));
+    a.download = 'snapshot.txt'; a.click();
+    log('экспорт: скачан snapshot.txt');
+  }
+});
 
 /* ===== Чат Twitch (анонимное подключение) ===== */
 function connect() {
