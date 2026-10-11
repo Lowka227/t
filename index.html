@@ -116,6 +116,7 @@
   .post .tx code, .post .tx pre { font-family: Consolas, monospace; background: rgba(0,0,0,.3); border-radius: 6px; padding: 1px 5px; }
   .post .tx pre { display: block; padding: 8px 10px; white-space: pre-wrap; margin: 6px 0; }
   .post .tx blockquote { margin: 6px 0; padding-left: 10px; border-left: 3px solid #9bd4ff; }
+  .cem { display: inline-block; width: 1.3em; height: 1.3em; vertical-align: -0.3em; object-fit: contain; }
   .post .lp { margin-top: 9px; padding: 4px 12px; border-left: 3px solid #9bd4ff; font-size: 15px; line-height: 1.35; }
   .post .lp .s { color: #9bd4ff; font-weight: 700; }
   .post .lp .t { font-weight: 700; }
@@ -221,6 +222,11 @@ const SCROLL_SPEED   = 140;       // скорость прокрутки вну�
 const MAX_SCROLL_MS  = 120000;   // самая долгая прокрутка, мс (если постов очень много, ускоряется)
 const HOLD_MS        = 2000;     // сколько держать окно после конца прокрутки (потом исчезает)
 const FADE_MS        = 1400;      // плавность появления/исчезновения
+
+// ПРЕМИУМ-ЭМОДЗИ: публичная страница Telegram отдаёт только обычный эмодзи-заменитель, сами картинки
+// берём через Bot API. Создай любого бота у @BotFather и вставь токен сюда (бот не обязан быть админом канала).
+// Токен виден всем, у кого есть этот файл, поэтому не показывай его на стриме и не выкладывай файл.
+const BOT_TOKEN = '8028068754:AAFYqhlx4uD2qsJRCFfSgBsiVcGjYbhCuJE';
 
 // Необязательно: свой прокси-адрес, если публичные не работают, например 'https://xxx.workers.dev/?url='
 const CUSTOM_PROXY = '';
@@ -451,12 +457,56 @@ function bgUrl(el) {
 }
 // Безопасное копирование форматированного текста (только простые теги, без атрибутов)
 const KEEP = ['b', 'strong', 'i', 'em', 'u', 's', 'code', 'pre', 'a', 'blockquote'];
+const absUrl = u => (u && u.startsWith('//')) ? 'https:' + u : (u || '');
+// Премиум-эмодзи (<tg-emoji>): берём анимацию (webm) или картинку, если нет — обычный эмодзи-заменитель
+function customEmoji(n) {
+  const fallback = (n.textContent || '').trim();
+  let webm = '', still = '';
+  const vid = n.querySelector('video');
+  if (vid) webm = absUrl(vid.getAttribute('src') || '');
+  n.querySelectorAll('source').forEach(s => {
+    const type = s.getAttribute('type') || '';
+    const set = (s.getAttribute('srcset') || s.getAttribute('src') || '').split(/\s+/)[0];
+    if (!webm && /webm|video/i.test(type)) webm = absUrl(set);
+    else if (!still && /webp|png|jpe?g|gif/i.test(type)) still = absUrl(set);
+  });
+  const img = n.querySelector('img');
+  if (!still && img) still = absUrl(img.getAttribute('src') || '');
+  const eid = n.getAttribute('emoji-id') || '';
+  if (!webm && !still && eid && BOT_TOKEN) {
+    const ph = document.createElement('span');
+    ph.className = 'cemf';
+    ph.setAttribute('data-eid', eid);
+    ph.textContent = fallback;
+    return ph;   // заменится на картинку/анимацию в hydrateEmoji()
+  }
+  if (!still) still = absUrl(bgUrl(n.querySelector('i.emoji')) || bgUrl(n));
+  if (webm) {
+    const v = document.createElement('video');
+    v.className = 'cem';
+    v.setAttribute('src', webm);
+    if (still) v.setAttribute('poster', still);
+    ['autoplay', 'loop', 'muted', 'playsinline'].forEach(a => v.setAttribute(a, ''));
+    return v;
+  }
+  if (still) {
+    const im = document.createElement('img');
+    im.className = 'cem';
+    im.setAttribute('referrerpolicy', 'no-referrer');
+    im.setAttribute('src', still);
+    im.setAttribute('alt', fallback);
+    return im;
+  }
+  log('премиум-эмодзи без картинки: ' + n.outerHTML.slice(0, 220));
+  return document.createTextNode(fallback);
+}
 function appendFormatted(src, dst) {
   src.childNodes.forEach(n => {
     if (n.nodeType === 3) { dst.appendChild(document.createTextNode(n.textContent)); return; }
     if (n.nodeType !== 1) return;
     const t = n.tagName.toLowerCase();
     if (t === 'br') { dst.appendChild(document.createElement('br')); return; }
+    if (t === 'tg-emoji') { dst.appendChild(customEmoji(n)); return; }
     if (n.classList && n.classList.contains('emoji')) { dst.appendChild(document.createTextNode(n.textContent)); return; }
     if (KEEP.includes(t)) {
       const e = document.createElement(t === 'a' ? 'span' : t);
@@ -522,9 +572,17 @@ function parsePage(html) {
     const reactions = [];
     msg.querySelectorAll('.tgme_reaction').forEach(r => {
       const b = r.querySelector('b');
-      const emoji = b ? b.textContent.trim() : (r.classList.contains('tgme_reaction_paid') ? '⭐' : '');
-      const count = r.textContent.replace(emoji, '').trim();
-      if (emoji) reactions.push({ emoji, count });
+      let emoji = b ? b.textContent.trim() : (r.classList.contains('tgme_reaction_paid') ? '⭐' : '');
+      let html = '';
+      const ce = r.querySelector('tg-emoji');
+      if (ce) {
+        const tmp = document.createElement('div');
+        tmp.appendChild(customEmoji(ce));
+        html = tmp.innerHTML;
+        if (!emoji) emoji = ce.textContent.trim() || '⭐';
+      }
+      const count = r.textContent.replace(emoji, '').replace(/\s+/g, ' ').trim();
+      if (emoji) reactions.push({ emoji, count, html });
     });
 
     const views = txt(msg, '.tgme_widget_message_views');
@@ -591,7 +649,12 @@ function renderPosts(posts) {
       const rx = mk('rx', el);
       p.reactions.forEach(r => {
         const s = document.createElement('span');
-        s.textContent = r.emoji + (r.count ? ' ' + r.count : '');
+        if (r.html) {
+          s.innerHTML = r.html;
+          if (r.count) s.appendChild(document.createTextNode(' ' + r.count));
+        } else {
+          s.textContent = r.emoji + (r.count ? ' ' + r.count : '');
+        }
         rx.appendChild(s);
       });
     }
@@ -600,6 +663,56 @@ function renderPosts(posts) {
     }
     if (SHOW_COMMENTS) mk('cm', el).innerHTML = CM_ICON + '<span>Прокомментировать</span><b>›</b>';
   });
+  hydrateEmoji();
+}
+
+/* ===== Премиум-эмодзи через Bot API (картинка/анимация по emoji-id) ===== */
+const EMO_KEY = 'tgk_emo_v1', EMO_TTL = 50 * 60 * 1000;   // ссылки на файлы Telegram живут не меньше часа
+let emoMap = {};
+try { emoMap = JSON.parse(localStorage.getItem(EMO_KEY) || '{}'); } catch (e) {}
+const botApi = (m, q) => fetch('https://api.telegram.org/bot' + BOT_TOKEN + '/' + m + (q || '')).then(r => r.json());
+async function resolveEmoji(ids) {
+  const need = ids.filter(i => !emoMap[i] || Date.now() - emoMap[i].t > EMO_TTL);
+  for (let k = 0; k < need.length; k += 100) {
+    const chunk = need.slice(k, k + 100);
+    try {
+      const j = await botApi('getCustomEmojiStickers', '?custom_emoji_ids=' + enc(JSON.stringify(chunk)));
+      if (!j.ok) throw new Error(j.description || 'getCustomEmojiStickers');
+      await Promise.all(j.result.map(async st => {
+        // .tgs (Lottie) не проигрываем — для них берём статичное превью
+        const fid = st.is_animated ? (st.thumbnail && st.thumbnail.file_id) : st.file_id;
+        if (!fid) return;
+        const g = await botApi('getFile', '?file_id=' + enc(fid));
+        if (g.ok) emoMap[st.custom_emoji_id] = { p: g.result.file_path, v: !!st.is_video && !st.is_animated, t: Date.now() };
+      }));
+    } catch (e) { log('премиум-эмодзи: ' + e.message); }
+  }
+  try { localStorage.setItem(EMO_KEY, JSON.stringify(emoMap)); } catch (e) {}
+}
+async function hydrateEmoji() {
+  if (!BOT_TOKEN) return;
+  const ph = [...document.querySelectorAll('.cemf[data-eid]')];
+  if (!ph.length) return;
+  await resolveEmoji([...new Set(ph.map(e => e.getAttribute('data-eid')))]);
+  ph.forEach(e => {
+    const m = emoMap[e.getAttribute('data-eid')];
+    if (!m || !e.isConnected) return;
+    const url = 'https://api.telegram.org/file/bot' + BOT_TOKEN + '/' + m.p;
+    let el;
+    if (m.v) {
+      el = document.createElement('video');
+      ['autoplay', 'loop', 'muted', 'playsinline'].forEach(a => el.setAttribute(a, ''));
+      el.muted = true;
+      el.src = url;
+    } else {
+      el = document.createElement('img');
+      el.referrerPolicy = 'no-referrer';
+      el.src = url;
+    }
+    el.className = 'cem';
+    e.replaceWith(el);
+  });
+  log('премиум-эмодзи подставлены: ' + ph.length);
 }
 
 /* ===== Режим встроенных постов Telegram (iframe) ===== */
@@ -630,7 +743,7 @@ addEventListener('message', e => {
 /* ===== Состояние, кэш, загрузка ===== */
 let busy = false, pendingPosts = null;
 let lastLoad = 0, loading = null, hasPosts = false;
-const CACHE_KEY = 'tgk_posts_v2';
+const CACHE_KEY = 'tgk_posts_v4';
 function saveCache(posts) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(posts)); } catch (e) {} }
 function loadCache() {
   try { const c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); return Array.isArray(c) && c.length ? c : null; }
