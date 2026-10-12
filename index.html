@@ -235,6 +235,7 @@ const CUSTOM_PROXY = '';
 // '' = папка tg-data лежит рядом с этим файлом (работает, если виджет открыт по адресу github.io).
 // Если файл открыт локально или в OBS из файла, впиши полный адрес: 'https://ник.github.io/репозиторий/tg-data/'
 const DATA_URL = '';
+const DATA_BASE = (DATA_URL || 'tg-data/').replace(/\/?$/, '/');
 
 // ЗАПАСНЫЕ ПОСТЫ: если Telegram/прокси недоступны и сохранённого кэша ещё нет, показываются они.
 // Как заполнить: открой виджет у себя (где посты грузятся), подожди загрузки и нажми клавишу E —
@@ -354,11 +355,17 @@ function saveInfo(info) {
 async function loadInfo() {
   if (!AUTO_INFO) return;
   const info = { name: '', avatar: '', subs: '' };
+  try {   // готовые данные, которые кладёт Action в tg-data/info.json
+    const j = JSON.parse(await getText(DATA_BASE + 'info.json?v=' + Math.floor(Date.now() / 600000), {}, 5000));
+    info.name = j.name || ''; info.subs = j.subs || '';
+    if (j.avatar) info.avatar = DATA_BASE + j.avatar + '?v=' + Math.floor(Date.now() / 3600000);
+  } catch (e) {}
   const pages = [
     [TG_URL,  /tgme_page_title|tgme_page_extra|og:title/],
     [TG_PAGE, /tgme_channel_info|og:title/]
   ];
   for (const [url, test] of pages) {
+    if (info.name && info.subs) break;
     try {
       const i = parseInfo(await fetchAny(url, test));
       info.name   = info.name   || i.name;
@@ -377,7 +384,7 @@ if (AUTO_INFO) {
   let cached = null;
   try { cached = JSON.parse(localStorage.getItem(INFO_KEY) || 'null'); } catch (e) {}
   applyInfo(cached);
-  setAvatar([USERPIC, cached && cached.avatar, AVATAR_URL]);
+  setAvatar([DATA_BASE + 'avatar.jpg?v=' + Math.floor(Date.now() / 3600000), USERPIC, cached && cached.avatar, AVATAR_URL]);
 } else {
   setAvatar([AVATAR_URL]);
 }
@@ -454,7 +461,6 @@ const SOURCES = [
   u => getText('https://r.jina.ai/' + u, { headers: { 'X-Return-Format': 'html' } })
 ];
 if (CUSTOM_PROXY) SOURCES.unshift(u => getText(CUSTOM_PROXY + enc(u)));
-const DATA_BASE = (DATA_URL || 'tg-data/').replace(/\/?$/, '/');
 const dataFile = u => {
   if (u === TG_URL) return 'channel.html';
   const m = u.match(/^https:\/\/t\.me\/s\/[^?#]+(?:\?before=(\d+))?$/);
@@ -494,7 +500,7 @@ function customEmoji(n) {
   const img = n.querySelector('img');
   if (!still && img) still = absUrl(img.getAttribute('src') || '');
   const eid = n.getAttribute('emoji-id') || '';
-  if (!webm && !still && eid && BOT_TOKEN) {
+  if (!webm && !still && eid) {
     const ph = document.createElement('span');
     ph.className = 'cemf';
     ph.setAttribute('data-eid', eid);
@@ -710,28 +716,44 @@ async function resolveEmoji(ids) {
   }
   try { localStorage.setItem(EMO_KEY, JSON.stringify(emoMap)); } catch (e) {}
 }
+let staticEmoji = null;
+async function loadStaticEmoji() {
+  if (staticEmoji) return staticEmoji;
+  try { staticEmoji = JSON.parse(await getText(DATA_BASE + 'emoji.json?v=' + Math.floor(Date.now() / 600000), {}, 5000)); }
+  catch (e) { staticEmoji = {}; }
+  return staticEmoji;
+}
+function emojiEl(url, isVideo) {
+  let el;
+  if (isVideo) {
+    el = document.createElement('video');
+    ['autoplay', 'loop', 'muted', 'playsinline'].forEach(a => el.setAttribute(a, ''));
+    el.muted = true;
+    el.src = url;
+  } else {
+    el = document.createElement('img');
+    el.referrerPolicy = 'no-referrer';
+    el.src = url;
+  }
+  el.className = 'cem';
+  return el;
+}
 async function hydrateEmoji() {
-  if (!BOT_TOKEN) return;
-  const ph = [...document.querySelectorAll('.cemf[data-eid]')];
+  let ph = [...document.querySelectorAll('.cemf[data-eid]')];
   if (!ph.length) return;
+  const st = await loadStaticEmoji();   // файлы эмодзи, которые скачал Action
+  ph = ph.filter(e => {
+    const m = st[e.getAttribute('data-eid')];
+    if (!m || !e.isConnected) return true;
+    e.replaceWith(emojiEl(DATA_BASE + m.f, m.v));
+    return false;
+  });
+  if (!ph.length || !BOT_TOKEN) return;
   await resolveEmoji([...new Set(ph.map(e => e.getAttribute('data-eid')))]);
   ph.forEach(e => {
     const m = emoMap[e.getAttribute('data-eid')];
     if (!m || !e.isConnected) return;
-    const url = 'https://api.telegram.org/file/bot' + BOT_TOKEN + '/' + m.p;
-    let el;
-    if (m.v) {
-      el = document.createElement('video');
-      ['autoplay', 'loop', 'muted', 'playsinline'].forEach(a => el.setAttribute(a, ''));
-      el.muted = true;
-      el.src = url;
-    } else {
-      el = document.createElement('img');
-      el.referrerPolicy = 'no-referrer';
-      el.src = url;
-    }
-    el.className = 'cem';
-    e.replaceWith(el);
+    e.replaceWith(emojiEl('https://api.telegram.org/file/bot' + BOT_TOKEN + '/' + m.p, m.v));
   });
   log('премиум-эмодзи подставлены: ' + ph.length);
 }
