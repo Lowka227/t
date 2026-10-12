@@ -226,10 +226,15 @@ const FADE_MS        = 1400;      // плавность появления/ис�
 // ПРЕМИУМ-ЭМОДЗИ: публичная страница Telegram отдаёт только обычный эмодзи-заменитель, сами картинки
 // берём через Bot API. Создай любого бота у @BotFather и вставь токен сюда (бот не обязан быть админом канала).
 // Токен виден всем, у кого есть этот файл, поэтому не показывай его на стриме и не выкладывай файл.
-const BOT_TOKEN = '8028068754:AAFYqhlx4uD2qsJRCFfSgBsiVcGjYbhCuJE';
+const BOT_TOKEN = '';
 
 // Необязательно: свой прокси-адрес, если публичные не работают, например 'https://xxx.workers.dev/?url='
-const CUSTOM_PROXY = 'https://tgproxy.rinatbiktagirov56.workers.dev/?url=https://t.me/s/kirillsmotrit';
+const CUSTOM_PROXY = '';
+
+// ДАННЫЕ С GITHUB: Action (.github/workflows/tg-data.yml) кладёт страницы канала в папку tg-data.
+// '' = папка tg-data лежит рядом с этим файлом (работает, если виджет открыт по адресу github.io).
+// Если файл открыт локально или в OBS из файла, впиши полный адрес: 'https://ник.github.io/репозиторий/tg-data/'
+const DATA_URL = '';
 
 // ЗАПАСНЫЕ ПОСТЫ: если Telegram/прокси недоступны и сохранённого кэша ещё нет, показываются они.
 // Как заполнить: открой виджет у себя (где посты грузятся), подожди загрузки и нажми клавишу E —
@@ -449,6 +454,16 @@ const SOURCES = [
   u => getText('https://r.jina.ai/' + u, { headers: { 'X-Return-Format': 'html' } })
 ];
 if (CUSTOM_PROXY) SOURCES.unshift(u => getText(CUSTOM_PROXY + enc(u)));
+const DATA_BASE = (DATA_URL || 'tg-data/').replace(/\/?$/, '/');
+const dataFile = u => {
+  if (u === TG_URL) return 'channel.html';
+  const m = u.match(/^https:\/\/t\.me\/s\/[^?#]+(?:\?before=(\d+))?$/);
+  return m ? (m[1] ? 'before-' + m[1] + '.html' : 'page.html') : null;
+};
+SOURCES.unshift(u => {
+  const f = dataFile(u);
+  return f ? getText(DATA_BASE + f + '?v=' + Math.floor(Date.now() / 600000)) : Promise.reject(new Error('нет файла'));
+});
 function fetchAny(url, test = /tgme_widget_message/) {
   return Promise.any(SOURCES.map(src => src(url).then(h => {
     if (!test.test(h)) throw new Error('ответ без данных канала');
@@ -764,9 +779,11 @@ function applyPosts(posts) { if (busy) pendingPosts = posts; else renderPosts(po
 
 async function fetchYear() {
   const cutoff = Date.now() - DAYS_BACK * 86400000;
+  const meta = await getText(DATA_BASE + 'meta.json?v=' + Math.floor(Date.now() / 600000), {}, 4000).then(JSON.parse).catch(() => null);
+  const maxPages = meta && meta.pages ? Math.min(MAX_PAGES, meta.pages) : MAX_PAGES;
   const byId = new Map();
   let before = 0;
-  for (let page = 1; page <= MAX_PAGES; page++) {
+  for (let page = 1; page <= maxPages; page++) {
     let res;
     try {
       const html = await fetchAny(before ? TG_PAGE + '?before=' + before : TG_PAGE);
