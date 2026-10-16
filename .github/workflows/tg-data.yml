@@ -1,8 +1,8 @@
-name: Update Telegram data
+name: tg-data
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -13,24 +13,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  update:
+  fetch:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch channel pages
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-        run: python3 scripts/fetch_tg.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      - name: Commit changes
+      - name: Скачать данные канала
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+        run: python scripts/fetch_tg.py
+
+      - name: Закоммитить, если что-то изменилось
         run: |
           git config user.name "tg-data-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add tg-data
+          git config user.email "tg-data-bot@users.noreply.github.com"
+          git add -A tg-data
           if git diff --cached --quiet; then
-            echo "no changes"
+            echo "без изменений"
           else
-            git commit -m "update tg data"
+            git commit -m "tg-data: обновление"
+            git pull --rebase --autostash
             git push
           fi
