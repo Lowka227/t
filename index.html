@@ -152,28 +152,39 @@
   #qrwrap { width: 380px; flex-shrink: 0; text-align: center; }
   #qrcard {
     position: relative;
-    background: linear-gradient(145deg, rgba(255,255,255,.99), rgba(236,243,250,.95));
-    border: 1px solid rgba(255,255,255,.8);
-    border-radius: 38px;
-    padding: 26px;
+    background: radial-gradient(120% 80% at 0% 0%, #ffffff 0%, #eef6fc 60%, #dcebf7 100%);
+    border-radius: 40px;
+    padding: 24px;
     line-height: 0;
-    box-shadow: inset 0 2px 2px rgba(255,255,255,.9), inset 0 -2px 4px rgba(120,150,190,.25), 0 14px 40px rgba(0,0,0,.4);
+    box-shadow:
+      0 0 0 5px rgba(255,255,255,.18),
+      0 0 0 6px rgba(42,171,238,.55),
+      0 0 46px rgba(42,171,238,.45),
+      inset 0 2px 2px #fff,
+      inset 0 -3px 6px rgba(120,160,200,.25),
+      0 16px 44px rgba(0,0,0,.42);
   }
-  #qrcard canvas { width: 328px; height: 328px; }
+  #qrcard canvas { width: 332px; height: 332px; }
   #logo {
     position: absolute; left: 50%; top: 50%;
-    width: 76px; height: 76px; margin: -38px 0 0 -38px;
-    border-radius: 50%; border: 5px solid #fff;
+    width: 96px; height: 96px; margin: -48px 0 0 -48px;
+    border-radius: 50%; border: 6px solid #fff;
     box-sizing: border-box; overflow: hidden;
-    font-size: 30px; line-height: 66px; background: #2aabee; color: #fff; font-weight: 700;
+    font-size: 36px; line-height: 84px; background: #2aabee; color: #fff; font-weight: 700;
+    box-shadow: 0 4px 16px rgba(10,60,110,.35);
   }
   #logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
   #handle {
-    display: inline-block; margin-top: 16px;
-    padding: 12px 34px; border-radius: 40px;
+    display: inline-flex; align-items: center; gap: 12px;
+    margin-top: 20px;
+    padding: 12px 32px 12px 24px; border-radius: 40px;
+    background: linear-gradient(135deg, #3bb8f2, #1b8fd0);
+    border: 1px solid rgba(255,255,255,.35);
+    box-shadow: inset 0 1.5px 1px rgba(255,255,255,.45), 0 10px 28px rgba(18,120,190,.45);
     color: #fff; font-size: 28px; font-weight: 700;
-    text-shadow: 0 1px 4px rgba(0,0,0,.5);
+    text-shadow: 0 1px 4px rgba(0,0,0,.35);
   }
+  #handle svg { width: 30px; height: 30px; flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -193,7 +204,7 @@
 
     <div id="qrwrap">
       <div id="qrcard"><div id="logo" data-ava></div></div>
-      <div id="handle" class="glass"></div>
+      <div id="handle"></div>
     </div>
   </div>
 </div>
@@ -232,9 +243,8 @@ const BOT_TOKEN = '';
 const CUSTOM_PROXY = '';
 
 // ДАННЫЕ С GITHUB: Action (.github/workflows/tg-data.yml) кладёт страницы канала в папку tg-data.
-// '' = папка tg-data лежит рядом с этим файлом (работает, если виджет открыт по адресу github.io).
-// Если файл открыт локально или в OBS из файла, впиши полный адрес: 'https://ник.github.io/репозиторий/tg-data/'
-const DATA_URL = '';
+// Полный адрес папки: так виджет берёт одни и те же данные у всех, откуда бы ни был открыт файл.
+const DATA_URL = 'https://raw.githubusercontent.com/Lowka227/t/main/tg-data/';
 const DATA_BASE = (DATA_URL || 'tg-data/').replace(/\/?$/, '/');
 
 // ЗАПАСНЫЕ ПОСТЫ: если Telegram/прокси недоступны и сохранённого кэша ещё нет, показываются они.
@@ -265,7 +275,7 @@ $('chName').textContent = CH_NAME;
 $('chSubs').textContent = CH_SUBS;
 $('chSubs').style.display = CH_SUBS ? 'block' : 'none';
 $('backCount').textContent = BACK_COUNT;
-$('handle').textContent = HANDLE;
+$('handle').innerHTML = '<svg viewBox="0 0 24 24" fill="#fff"><path d="M21.5 3.6 2.6 10.9c-1.1.4-1.1 1.2-.2 1.5l4.8 1.5 1.9 5.7c.2.6.9.9 1.4.4l2.6-2.4 4.7 3.5c.9.5 1.5.2 1.7-.9L23.4 5c.3-1.3-.5-1.8-1.9-1.4zM8.3 13.6l9.9-6.2c.5-.3.9-.1.5.2l-8 7.3-.3 3.4-2.1-4.7z"/></svg><span>' + HANDLE + '</span>';
 
 /* Диагностика */
 const dbg = document.createElement('div');
@@ -405,32 +415,52 @@ function buildQR() {
     correctLevel: QRCode.CorrectLevel.H
   });
   const o = q._oQRCode, n = o.getModuleCount();
-  const S = 720, m = S / n;
+  const S = 840, m = S / n;
   const cv = document.createElement('canvas');
   cv.width = cv.height = S;
   const ctx = cv.getContext('2d');
   const g = ctx.createLinearGradient(0, 0, S, S);
-  g.addColorStop(0, '#1b1f26');
-  g.addColorStop(1, '#3d4350');
+  g.addColorStop(0, '#1b88d0');
+  g.addColorStop(1, '#0c3b78');
   ctx.fillStyle = g;
+
   const inEye = (r, c) => (r < 7 && c < 7) || (r < 7 && c >= n - 7) || (r >= n - 7 && c < 7);
-  const logoR = n * 0.21;
+  const logoR = n * 0.22;
+  const dark = (r, c) =>
+    r >= 0 && c >= 0 && r < n && c < n && o.isDark(r, c) && !inEye(r, c) &&
+    Math.hypot(r + .5 - n / 2, c + .5 - n / 2) >= logoR;
+
+  // «жидкие» модули: скругляются только внешние углы, соседние сливаются
   for (let r = 0; r < n; r++) {
     for (let c = 0; c < n; c++) {
-      if (!o.isDark(r, c) || inEye(r, c)) continue;
-      if (Math.hypot(r + .5 - n / 2, c + .5 - n / 2) < logoR) continue;
-      rr(ctx, c * m + m * .04, r * m + m * .04, m * .92, m * .92, m * .32);
+      if (!dark(r, c)) continue;
+      const up = dark(r - 1, c), dn = dark(r + 1, c), lf = dark(r, c - 1), rt = dark(r, c + 1);
+      const R = m * .5;
+      const tl = (!up && !lf) ? R : 0, tr = (!up && !rt) ? R : 0;
+      const br = (!dn && !rt) ? R : 0, bl = (!dn && !lf) ? R : 0;
+      const x = c * m - .3, y = r * m - .3, w = m + .6;
+      ctx.beginPath();
+      ctx.moveTo(x + tl, y);
+      ctx.arcTo(x + w, y, x + w, y + w, tr);
+      ctx.arcTo(x + w, y + w, x, y + w, br);
+      ctx.arcTo(x, y + w, x, y, bl);
+      ctx.arcTo(x, y, x + w, y, tl);
+      ctx.closePath();
       ctx.fill();
     }
   }
+
+  // глазки: круглое кольцо + мягкий центр
   [[0, 0], [0, n - 7], [n - 7, 0]].forEach(([r0, c0]) => {
     const x = c0 * m, y = r0 * m;
     ctx.globalCompositeOperation = 'source-over';
-    rr(ctx, x, y, 7 * m, 7 * m, 2.2 * m); ctx.fill();
+    ctx.fillStyle = g;
+    rr(ctx, x, y, 7 * m, 7 * m, 2.5 * m); ctx.fill();
     ctx.globalCompositeOperation = 'destination-out';
-    rr(ctx, x + m, y + m, 5 * m, 5 * m, 1.5 * m); ctx.fill();
+    rr(ctx, x + m, y + m, 5 * m, 5 * m, 1.7 * m); ctx.fill();
     ctx.globalCompositeOperation = 'source-over';
-    rr(ctx, x + 2 * m, y + 2 * m, 3 * m, 3 * m, 1.1 * m); ctx.fill();
+    ctx.fillStyle = g;
+    rr(ctx, x + 2 * m, y + 2 * m, 3 * m, 3 * m, 1.3 * m); ctx.fill();
   });
   $('qrcard').insertBefore(cv, $('logo'));
 }
